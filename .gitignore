@@ -4,4 +4,4 @@ dist/
 __pycache__/
 .pytest_cache/
 .DS_Store
-plugin/src/bambuddy/web/index.html
+plugin/src/bambuddy/web/

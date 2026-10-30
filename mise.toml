@@ -4,16 +4,23 @@ pnpm = "latest"
 python = "3.12"
 uv = "latest"
 
+[tasks."ui:install"]
+dir = "ui"
+run = "pnpm install --frozen-lockfile"
+
 [tasks."ui:build"]
 dir = "ui"
-run = ["pnpm install --frozen-lockfile", "pnpm build"]
+depends = ["ui:install"]
+run = "pnpm build"
 
 [tasks."ui:test"]
 dir = "ui"
+depends = ["ui:install"]
 run = ["pnpm check", "pnpm test"]
 
 [tasks."plugin:test"]
 dir = "plugin"
+depends = ["ui:build"]
 run = "uv run --group dev pytest"
 
 [tasks.test]
@@ -22,7 +29,4 @@ depends = ["ui:test", "plugin:test"]
 [tasks.build]
 description = "Build the installable plugin wheel into dist/"
 depends = ["ui:build"]
-run = [
-  "cp ui/dist/index.html plugin/src/bambuddy/web/index.html",
-  "uv build --wheel --project plugin --out-dir dist",
-]
+run = "uv build --wheel --project plugin --out-dir dist"

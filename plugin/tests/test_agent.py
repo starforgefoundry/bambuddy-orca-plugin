@@ -52,7 +52,7 @@ def test_requests_sliced_files_and_instance_at_load(plugin):
     SESSIONS.save(Session("https://bambuddy.local", "bb_x", None))
     package.BambuddyPlugin().register_capabilities()
     assert orca.permission_requests == [
-        {"fs_read": [f"{SLICED_FILES_DIR}/*"], "network": ["https://bambuddy.local"], "threading": True}
+        {"fs_read": [str(SLICED_FILES_DIR / "*")], "network": ["https://bambuddy.local"], "threading": True}
     ]
 
 

@@ -9,6 +9,6 @@ export default defineConfig({
   resolve: {
     alias: { $lib: fileURLToPath(new URL('./src/lib', import.meta.url)) },
   },
-  build: { target: 'es2022' },
+  build: { target: 'es2022', outDir: '../plugin/src/bambuddy/web', emptyOutDir: true },
   test: { include: ['src/**/*.test.ts'] },
 })
