@@ -31,6 +31,10 @@ class Handler(BaseHTTPRequestHandler):
         self._record()
         self._reply(200, {"id": 5})
 
+    def do_PUT(self):
+        self._record()
+        self._reply(200, {"id": 5})
+
     def _reply(self, status, body):
         data = json.dumps(body).encode()
         self.send_response(status)
@@ -121,3 +125,10 @@ def test_normalize_instance_url(raw, expected):
 def test_normalize_rejects_other_schemes():
     with pytest.raises(BambuddyError):
         normalize_instance_url("ftp://x")
+
+
+def test_rename_file_puts_new_filename(server):
+    BambuddyClient(server, "bb_x").rename_file(9, "Boat.gcode.3mf")
+    request = Handler.requests[0]
+    assert (request["method"], request["path"]) == ("PUT", "/api/v1/library/files/9")
+    assert json.loads(request["body"]) == {"filename": "Boat.gcode.3mf"}

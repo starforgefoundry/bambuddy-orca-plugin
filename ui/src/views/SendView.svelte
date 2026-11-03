@@ -5,6 +5,7 @@
   import { Alert, AlertDescription } from '$lib/components/ui/alert'
   import { Badge } from '$lib/components/ui/badge'
   import { Button } from '$lib/components/ui/button'
+  import { Input } from '$lib/components/ui/input'
   import { Label } from '$lib/components/ui/label'
   import { Progress } from '$lib/components/ui/progress'
   import * as RadioGroup from '$lib/components/ui/radio-group'
@@ -43,12 +44,22 @@
 
 <div class="mx-auto flex max-w-xl flex-col gap-4">
   <header class="flex flex-col gap-1">
-    <h1 class="truncate text-base font-semibold">{boot.fileName}</h1>
+    <h1 class="text-base font-semibold">Send to Bambuddy</h1>
     <div class="flex items-center gap-2 text-muted-foreground">
-      Send to Bambuddy <Badge variant="secondary">{boot.model}</Badge>
+      <Badge variant="secondary">{boot.model}</Badge>
       <span class="truncate">{boot.instanceUrl}</span>
     </div>
   </header>
+
+  <section class="flex flex-col gap-2">
+    <Label for="print-name">Name</Label>
+    <div class="flex items-center gap-2">
+      <Input id="print-name" class="flex-1" bind:value={manager.printName} disabled={manager.submitting} />
+      {#if boot.nameSuffix}
+        <span class="shrink-0 text-muted-foreground">{boot.nameSuffix}</span>
+      {/if}
+    </div>
+  </section>
 
   {#if manager.uploadError}
     <Alert variant="destructive"><AlertDescription>Upload failed: {manager.uploadError}</AlertDescription></Alert>

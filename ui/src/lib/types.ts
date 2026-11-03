@@ -63,7 +63,8 @@ export interface PrintOptions {
 export interface SendBoot {
   view: typeof VIEW_SEND
   instanceUrl: string
-  fileName: string
+  printName: string
+  nameSuffix: string
   model: string
   printers: Printer[]
   options: PrintOptions
@@ -108,6 +109,7 @@ export interface SendRequest {
   location: string | null
   dispatch: Dispatch
   plates: PlateRequest[]
+  printName: string
   forceColorMatch: boolean
   groupPlates: boolean
   options: PrintOptions

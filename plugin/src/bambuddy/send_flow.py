@@ -1,6 +1,5 @@
 """Runs one "send to Bambuddy" job: uploads the sliced file while the send window collects the target."""
 
-import re
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -10,13 +9,12 @@ from typing import Any, Protocol
 from .client import BambuddyClient, BambuddyError
 from .paths import bambu_filament_ids_file
 from .plate import plate_previews
+from .print_name import PrintName
 from .send import bambu_filament_ids, batch_payload, file_filaments, loaded_trays, queue_payload, sent_summary
 
 RESULT_OK = 0
 RESULT_CANCELED = -18
 CANCEL_POLL_SECONDS = 0.2
-GCODE_3MF_SUFFIX = ".gcode.3mf"
-UNSAFE_FILENAME_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 
 
 class Window(Protocol):
@@ -27,15 +25,10 @@ class Window(Protocol):
 OpenWindow = Callable[[dict[str, Any], Callable[[Any], None], Callable[[], None]], Window]
 
 
-def library_filename(project_name: str) -> str:
-    name = re.sub(r"(\.gcode)?\.3mf$", "", project_name.strip(), flags=re.IGNORECASE) or "OrcaSlicer"
-    return UNSAFE_FILENAME_CHARS.sub("_", name) + GCODE_3MF_SUFFIX
-
-
 @dataclass(frozen=True)
 class SendJob:
     file_path: Path
-    file_name: str
+    name: PrintName
     plates: list[int]
     model: str
     printers: list[dict[str, Any]]
@@ -53,6 +46,7 @@ class SendFlow:
         self._client = client
         self._job = job
         self._open_window = open_window
+        self._name = job.name
         self._lock = threading.Lock()
         self._finished = threading.Event()
         self._result = RESULT_CANCELED
@@ -84,7 +78,8 @@ class SendFlow:
         return {
             "view": "send",
             "instanceUrl": self._client.instance_url,
-            "fileName": self._job.file_name,
+            "printName": self._job.name.base,
+            "nameSuffix": self._job.name.suffix,
             "model": self._job.model,
             "printers": self._job.printers,
             "options": self._job.options,
@@ -107,7 +102,7 @@ class SendFlow:
 
     def _upload(self) -> None:
         try:
-            uploaded = self._client.upload_file(self._job.file_path, self._job.file_name, self._report_upload)
+            uploaded = self._client.upload_file(self._job.file_path, self._job.name.file_name, self._report_upload)
             with self._lock:
                 self._file_id = uploaded["id"]
                 canceled = self._canceled
@@ -149,6 +144,11 @@ class SendFlow:
         if file_id is None:
             self._post({"type": "send-result", "error": "The file has not finished uploading."})
             return
+        try:
+            self._rename(file_id, self._name.renamed(str(request.get("printName") or self._name.base)))
+        except BambuddyError as error:
+            self._post({"type": "send-result", "error": f"Could not rename the file: {error}"})
+            return
         queued, failures = [], []
         batch_id, batch_error = None, None
         if request.get("groupPlates") and len(request["plates"]) > 1:
@@ -171,7 +171,7 @@ class SendFlow:
             return
         with self._lock:
             self._submitted = True
-        self.summary = sent_summary(request, self._job.file_name, self._job.model, self._job.printers, len(queued))
+        self.summary = sent_summary(request, self._name.file_name, self._job.model, self._job.printers, len(queued))
         if failures:
             self.summary += " Not queued: " + "; ".join(failures)
         if batch_error:
@@ -183,8 +183,13 @@ class SendFlow:
     def _batch(self, file_id: int, plate_count: int) -> int:
         """One batch per send window, so a retry after a failed send reuses it instead of leaving an empty one."""
         if self._batch_id is None:
-            self._batch_id = self._client.create_batch(batch_payload(self._job.file_name, file_id, plate_count))["id"]
+            self._batch_id = self._client.create_batch(batch_payload(self._name.file_name, file_id, plate_count))["id"]
         return self._batch_id
+
+    def _rename(self, file_id: int, name: PrintName) -> None:
+        if name.file_name != self._name.file_name:
+            self._client.rename_file(file_id, name.file_name)
+        self._name = name
 
     def _on_message(self, data: Any) -> None:
         if not isinstance(data, dict):

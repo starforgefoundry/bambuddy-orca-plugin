@@ -3,7 +3,7 @@ import zipfile
 
 import base64
 
-from bambuddy.plate import plate_previews, sliced_model, sliced_plates
+from bambuddy.plate import plate_labels, plate_previews, sliced_model, sliced_plates
 
 SLICE_INFO = '<config><plate><metadata key="index" value="1"/><metadata key="printer_model_id" value="O1S"/></plate></config>'
 
@@ -62,3 +62,21 @@ def test_plate_previews_prefer_the_small_render(tmp_path):
         2: "data:image/png;base64," + base64.b64encode(b"two").decode(),
     }
     assert plate_previews(tmp_path / "missing.gcode.3mf", [1]) == {}
+
+
+MODEL_SETTINGS = (
+    "<config>"
+    '<plate><metadata key="plater_id" value="1"/><metadata key="plater_name" value="Left"/>'
+    '<model_instance><metadata key="object_id" value="2"/></model_instance></plate>'
+    '<plate><metadata key="plater_id" value="2"/><metadata key="plater_name" value=""/></plate>'
+    "</config>"
+)
+
+
+def test_plate_labels_skip_unnamed_plates(tmp_path):
+    path = make_3mf(tmp_path, **{"Metadata/model_settings.config": MODEL_SETTINGS})
+    assert plate_labels(path) == {1: "Left"}
+
+
+def test_plate_labels_without_model_settings(tmp_path):
+    assert plate_labels(make_3mf(tmp_path, **{"Metadata/slice_info.config": SLICE_INFO})) == {}

@@ -18,6 +18,7 @@ export const ALL_LOCATIONS = ''
 
 export class SendManager {
   readonly boot: SendBoot
+  printName = $state('')
   targetKind = $state<TargetKind>(TARGET_ANY)
   printerId = $state<number | null>(null)
   location = $state(ALL_LOCATIONS)
@@ -37,6 +38,7 @@ export class SendManager {
 
   constructor(boot: SendBoot) {
     this.boot = boot
+    this.printName = boot.printName
     this.options = { ...boot.options }
     this.forceColorMatch = boot.requireExactColors
     this.groupPlates = boot.groupPlates
@@ -62,6 +64,7 @@ export class SendManager {
 
   get canSubmit(): boolean {
     if (this.submitting || this.plates === null || this.selectedPlateIds.length === 0) return false
+    if (!this.printName.trim()) return false
     return this.targetKind === TARGET_ANY || this.selectedTrays !== null
   }
 
@@ -128,6 +131,7 @@ export class SendManager {
           plateId: plate.plateId,
           amsMapping: toPrinter ? toAmsMapping(plate.filaments, this.mappingFor(plate.plateId)) : null,
         })),
+        printName: this.printName.trim(),
         forceColorMatch: !toPrinter && this.forceColorMatch,
         groupPlates: selected.length > 1 && this.groupPlates,
         options: { ...this.options },

@@ -11,6 +11,9 @@ from .models import short_name
 
 SLICE_INFO = "Metadata/slice_info.config"
 PROJECT_SETTINGS = "Metadata/project_settings.config"
+MODEL_SETTINGS = "Metadata/model_settings.config"
+PLATE_ID_KEY = "plater_id"
+PLATE_NAME_KEY = "plater_name"
 PLATE_GCODE = re.compile(r"^Metadata/plate_(\d+)\.gcode$")
 PNG_DATA_URI = "data:image/png;base64,"
 
@@ -42,6 +45,21 @@ def sliced_plates(path: Path) -> list[int]:
     except (OSError, zipfile.BadZipFile):
         return []
     return sorted(numbers)
+
+
+def plate_labels(path: Path) -> dict[int, str]:
+    """The names given to plates in OrcaSlicer, by 1-based plate number."""
+    try:
+        with zipfile.ZipFile(path) as archive:
+            root = ElementTree.fromstring(archive.read(MODEL_SETTINGS))
+    except (OSError, KeyError, zipfile.BadZipFile, ElementTree.ParseError):
+        return {}
+    labels: dict[int, str] = {}
+    for plate in root.iter("plate"):
+        meta = {m.get("key"): m.get("value") or "" for m in plate.findall("metadata")}
+        if meta.get(PLATE_ID_KEY, "").isdigit() and meta.get(PLATE_NAME_KEY):
+            labels[int(meta[PLATE_ID_KEY])] = meta[PLATE_NAME_KEY]
+    return labels
 
 
 def sliced_model(path: Path) -> str | None:

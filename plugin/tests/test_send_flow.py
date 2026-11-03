@@ -4,11 +4,12 @@ from pathlib import Path
 import pytest
 
 from bambuddy.client import BambuddyError
-from bambuddy.send_flow import RESULT_CANCELED, RESULT_OK, SendFlow, SendJob, library_filename
+from bambuddy.print_name import PrintName
+from bambuddy.send_flow import RESULT_CANCELED, RESULT_OK, SendFlow, SendJob
 
 BATCH_ID = 41
 OPTIONS = {"bedLevelling": True, "flowCali": False, "vibrationCali": False, "timelapse": False}
-JOB = SendJob(Path("plate.3mf"), "Benchy.gcode.3mf", [2], "Bambu Lab X1 Carbon", [], OPTIONS)
+JOB = SendJob(Path("plate.3mf"), PrintName("Benchy"), [2], "Bambu Lab X1 Carbon", [], OPTIONS)
 REQUEST = {
     "targetKind": "any",
     "printerId": None,
@@ -23,10 +24,13 @@ REQUEST = {
 class FakeClient:
     instance_url = "https://b.local"
 
-    def __init__(self, fail_queue=False, failing_plates=(), fail_batch=False):
+    def __init__(self, fail_queue=False, failing_plates=(), fail_batch=False, fail_rename=False):
         self.fail_queue = fail_queue
         self.failing_plates = set(failing_plates)
         self.fail_batch = fail_batch
+        self.fail_rename = fail_rename
+        self.uploaded_names = []
+        self.renamed = []
         self.batches = []
         self.queued = []
         self.deleted = []
@@ -36,6 +40,7 @@ class FakeClient:
         return {"plates": [{"index": 1, "name": "Left"}, {"index": 2, "name": ""}]}
 
     def upload_file(self, path, filename, on_progress=None):
+        self.uploaded_names.append(filename)
         if on_progress:
             on_progress(50, 100)
             on_progress(100, 100)
@@ -58,6 +63,11 @@ class FakeClient:
 
     def delete_file(self, file_id):
         self.deleted.append(file_id)
+
+    def rename_file(self, file_id, filename):
+        if self.fail_rename:
+            raise BambuddyError("Invalid filename")
+        self.renamed.append((file_id, filename))
 
 
 class FakeWindow:
@@ -155,12 +165,40 @@ def test_orca_cancel_closes_window():
     assert result == RESULT_CANCELED
 
 
-@pytest.mark.parametrize(
-    ("project", "expected"),
-    [("Benchy", "Benchy.gcode.3mf"), ("Benchy.gcode.3mf", "Benchy.gcode.3mf"), ("a/b:c", "a_b_c.gcode.3mf"), ("", "OrcaSlicer.gcode.3mf")],
-)
-def test_library_filename(project, expected):
-    assert library_filename(project) == expected
+def test_renamed_print_keeps_plate_suffix():
+    client = FakeClient()
+    job = SendJob(Path("plate.3mf"), PrintName("Benchy", "_plate_2"), [2], "X1C", [], OPTIONS)
+
+    def script(window):
+        window.ready.wait(2)
+        window.on_message({"type": "send", "request": {**REQUEST, "printName": "Boat"}})
+
+    flow = SendFlow(client, job, lambda boot, on_message, on_close: start(script, FakeWindow(on_message, on_close)))
+    assert flow.run(lambda: False) == RESULT_OK
+    assert client.uploaded_names == ["Benchy_plate_2.gcode.3mf"]
+    assert client.renamed == [(9, "Boat_plate_2.gcode.3mf")]
+    assert flow.summary.startswith("Boat_plate_2.gcode.3mf is queued")
+
+
+def test_unchanged_name_is_not_renamed():
+    client = FakeClient()
+    send_once(client, {**REQUEST, "printName": "Benchy"}, JOB)
+    assert client.renamed == []
+
+
+def test_failed_rename_keeps_window_open():
+    client = FakeClient(fail_rename=True)
+
+    def script(window):
+        window.ready.wait(2)
+        window.on_message({"type": "send", "request": {**REQUEST, "printName": "a/b"}})
+        eventually(lambda: any(p["type"] == "send-result" for p in window.posts))
+        window.close()
+
+    result, window = run_flow(client, script)
+    assert result == RESULT_CANCELED
+    assert {"type": "send-result", "error": "Could not rename the file: Invalid filename"} in window.posts
+    assert client.queued == []
 
 
 def eventually(check, timeout=2.0):
@@ -175,7 +213,7 @@ def eventually(check, timeout=2.0):
 
 def test_print_all_queues_each_selected_plate():
     client = FakeClient(failing_plates={3})
-    job = SendJob(Path("plate.3mf"), "Benchy.gcode.3mf", [1, 2, 3], "X1C", [], OPTIONS)
+    job = SendJob(Path("plate.3mf"), PrintName("Benchy"), [1, 2, 3], "X1C", [], OPTIONS)
     request = {
         **REQUEST,
         "targetKind": "printer",
@@ -205,7 +243,7 @@ def test_print_all_queues_each_selected_plate():
     assert "Not queued: plate 3: No active printers for model" in flow.summary
 
 
-MULTI_PLATE_JOB = SendJob(Path("plate.3mf"), "Benchy.gcode.3mf", [1, 2], "X1C", [], OPTIONS)
+MULTI_PLATE_JOB = SendJob(Path("plate.3mf"), PrintName("Benchy"), [1, 2], "X1C", [], OPTIONS)
 GROUPED_REQUEST = {
     **REQUEST,
     "groupPlates": True,

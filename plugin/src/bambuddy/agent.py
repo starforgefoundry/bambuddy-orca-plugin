@@ -14,11 +14,12 @@ from . import __version__
 from .client import BambuddyClient, BambuddyError, NetworkPermissionError
 from .device import DeviceProfile, push_status, reply_to, ssdp_announcement
 from .models import short_name
-from .plate import sliced_model, sliced_plates
+from .plate import plate_labels, sliced_model, sliced_plates
 from .presets import AGENT_ID
 from .runtime import SESSIONS
 from .send import compatible_printers
-from .send_flow import RESULT_CANCELED, SendFlow, SendJob, library_filename
+from .print_name import PrintName, plate_suffixes
+from .send_flow import RESULT_CANCELED, SendFlow, SendJob
 from .settings import DEFAULT_SETTINGS, effective_settings, print_options
 from .web import render_page, render_settings_page
 
@@ -201,6 +202,7 @@ class BambuddyAgent(PrinterAgentBase):
             model = _in_thread(lambda: sliced_model(Path(params.filename))) or preset_model
             # Print all exports every sliced plate into one file; a single-plate print carries just its own.
             plates = _in_thread(lambda: sliced_plates(Path(params.filename))) or [params.plate_index or DEFAULT_PLATE_ID]
+            labels = _in_thread(lambda: plate_labels(Path(params.filename)))
             printers = _in_thread(lambda: compatible_printers(client.list_printers(), model))
         except PermissionError:
             orca.host.ui.message("Allow Bambuddy to run background tasks when OrcaSlicer asks, then try again.", "Bambuddy", icon="warning")
@@ -213,7 +215,7 @@ class BambuddyAgent(PrinterAgentBase):
             return RESULT_FAILED
         job = SendJob(
             file_path=Path(params.filename),
-            file_name=library_filename(params.project_name),
+            name=PrintName.from_project(params.project_name, plate_suffixes(plates, labels)),
             plates=plates,
             model=model,
             printers=printers,

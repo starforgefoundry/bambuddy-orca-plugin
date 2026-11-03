@@ -95,6 +95,9 @@ class BambuddyClient:
     def delete_file(self, file_id: int) -> None:
         self._request("DELETE", f"/library/files/{file_id}")
 
+    def rename_file(self, file_id: int, filename: str) -> dict[str, Any]:
+        return self._send_json("PUT", f"/library/files/{file_id}", {"filename": filename})
+
     def file_plates(self, file_id: int) -> dict[str, Any]:
         return self._request("GET", f"/library/files/{file_id}/plates")
 
@@ -108,7 +111,10 @@ class BambuddyClient:
         return self._post_json("/queue/batches", payload)
 
     def _post_json(self, path: str, payload: dict[str, Any]) -> Any:
-        return self._request("POST", path, body=json.dumps(payload).encode(), content_type="application/json")
+        return self._send_json("POST", path, payload)
+
+    def _send_json(self, method: str, path: str, payload: dict[str, Any]) -> Any:
+        return self._request(method, path, body=json.dumps(payload).encode(), content_type="application/json")
 
     def _request(
         self,
