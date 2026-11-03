@@ -4,7 +4,14 @@ import pytest
 
 from bambuddy.client import BambuddyError
 from bambuddy.session import Session
-from bambuddy.sign_in import PendingSignIn, SignInCanceled, SignInFailed, sign_in
+from bambuddy.sign_in import (
+    DeviceSignInUnavailable,
+    PendingSignIn,
+    SignInCanceled,
+    SignInFailed,
+    sign_in,
+    sign_in_with_api_key,
+)
 
 GRANT = {
     "device_code": "dc",
@@ -74,3 +81,54 @@ def test_cancel():
     stop.set()
     with pytest.raises(SignInCanceled):
         run(FakeClient([]), stop)
+
+
+@pytest.mark.parametrize("status", [404, 405])
+def test_instance_without_device_sign_in_needs_api_key(status):
+    client = FakeClient([])
+
+    def missing(device_name):
+        raise BambuddyError("Not Found", status)
+
+    client.start_device_sign_in = missing
+    with pytest.raises(DeviceSignInUnavailable):
+        run(client)
+
+
+class KeyClient:
+    instance_url = "https://b.local"
+    api_key = "bb_k"
+
+    def __init__(self, printers_error=None, me=None):
+        self._printers_error = printers_error
+        self._me = me
+
+    def list_printers(self):
+        if self._printers_error:
+            raise self._printers_error
+        return []
+
+    def current_user(self):
+        if isinstance(self._me, Exception):
+            raise self._me
+        return self._me
+
+
+def test_api_key_session_uses_key_owner():
+    assert sign_in_with_api_key(KeyClient(me={"username": "alice"})) == Session("https://b.local", "bb_k", "alice")
+
+
+def test_api_key_without_user_lookup():
+    session = sign_in_with_api_key(KeyClient(me=BambuddyError("Not Found", 404)))
+    assert session == Session("https://b.local", "bb_k", None)
+
+
+@pytest.mark.parametrize("status", [401, 403])
+def test_rejected_api_key(status):
+    with pytest.raises(SignInFailed, match="rejected the API key"):
+        sign_in_with_api_key(KeyClient(printers_error=BambuddyError("Invalid API key", status)))
+
+
+def test_api_key_server_errors_propagate():
+    with pytest.raises(BambuddyError):
+        sign_in_with_api_key(KeyClient(printers_error=BambuddyError("boom", 500)))

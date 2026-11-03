@@ -137,3 +137,30 @@ def test_sign_out_clears_session_and_profiles(flow):
     assert list((tmp_path / "bundle" / "machine").glob("*.json")) == []
     assert list((tmp_path / "bundle" / "filament").glob("*.json")) == []
     assert reloads == [1, 1]
+
+
+def test_api_key_sign_in_saves_session(flow, monkeypatch):
+    flow, window, _, tmp_path = flow
+    monkeypatch.setattr(connect_flow, "sign_in_with_api_key", lambda client: Session(client.instance_url, "bb_new", None))
+
+    flow._on_message({"type": "sign-in-with-api-key", "url": "b2.local", "apiKey": " bb_new "})
+    signed_in = window.wait_for("signed-in")
+    assert signed_in["session"] == {"instanceUrl": "https://b2.local", "username": None, "hasApiKey": True}
+    assert SessionStore(tmp_path / "session.json").load() == Session("https://b2.local", "bb_new", None)
+
+
+def test_blank_api_key_is_refused(flow):
+    flow, window, _, _ = flow
+    flow._on_message({"type": "sign-in-with-api-key", "url": "b.local", "apiKey": "  "})
+    assert window.wait_for("sign-in-failed")["error"] == "Paste an API key."
+
+
+def test_missing_device_sign_in_asks_for_api_key(flow, monkeypatch):
+    flow, window, _, _ = flow
+
+    def unavailable(*args):
+        raise connect_flow.DeviceSignInUnavailable()
+
+    monkeypatch.setattr(connect_flow, "sign_in", unavailable)
+    flow._on_message({"type": "sign-in", "url": "b.local"})
+    assert window.wait_for("api-key-required") == {"type": "api-key-required"}

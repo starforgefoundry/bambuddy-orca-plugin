@@ -39,10 +39,13 @@ def normalize_instance_url(url: str) -> str:
 class BambuddyClient:
     def __init__(self, instance_url: str, api_key: str | None = None):
         self.instance_url = instance_url
-        self._api_key = api_key
+        self.api_key = api_key
 
     def auth_status(self) -> dict[str, Any]:
         return self._request("GET", "/auth/status")
+
+    def current_user(self) -> dict[str, Any]:
+        return self._request("GET", "/auth/me")
 
     def start_device_sign_in(self, device_name: str) -> dict[str, Any]:
         return self._post_json("/connect/device", {"device_name": device_name})
@@ -132,8 +135,8 @@ class BambuddyClient:
         # A streamed body needs its length up front, or it is sent chunked.
         if content_length is not None:
             headers["Content-Length"] = str(content_length)
-        if self._api_key:
-            headers["X-API-Key"] = self._api_key
+        if self.api_key:
+            headers["X-API-Key"] = self.api_key
         # Not urllib: OrcaSlicer asks the user once per URL for urllib, but once per host for http.client.
         connection_class = HTTPSConnection if url.scheme == "https" else HTTPConnection
         connection = connection_class(url.netloc, timeout=timeout)

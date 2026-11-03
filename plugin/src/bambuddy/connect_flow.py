@@ -12,7 +12,7 @@ from .models import DEFAULT_NOZZLE
 from .presets import BundleStore, PlannedPreset, PrinterModel, name_problem, plan_presets, remove_legacy_presets
 from .send_flow import OpenWindow, Window
 from .session import Session, SessionStore
-from .sign_in import PendingSignIn, SignInCanceled, SignInFailed, sign_in
+from .sign_in import DeviceSignInUnavailable, PendingSignIn, SignInCanceled, SignInFailed, sign_in, sign_in_with_api_key
 
 
 def printer_nozzle(status: dict[str, Any]) -> str:
@@ -85,7 +85,7 @@ class ConnectFlow:
 
     @staticmethod
     def _session_json(session: Session) -> dict[str, Any]:
-        return {"instanceUrl": session.instance_url, "username": session.username}
+        return {"instanceUrl": session.instance_url, "username": session.username, "hasApiKey": bool(session.api_key)}
 
     def _post(self, data: dict[str, Any]) -> None:
         if self._window is not None:
@@ -102,6 +102,8 @@ class ConnectFlow:
             self._stop_sign_in.set()
             self._stop_sign_in = threading.Event()
             self._spawn(self._sign_in, str(data.get("url", "")), self._stop_sign_in)
+        elif kind == "sign-in-with-api-key":
+            self._spawn(self._sign_in_with_api_key, str(data.get("url", "")), str(data.get("apiKey", "")).strip())
         elif kind == "cancel-sign-in":
             self._stop_sign_in.set()
         elif kind == "plan-profiles":
@@ -132,9 +134,26 @@ class ConnectFlow:
             session = sign_in(client, self._device_name, self._open_browser, on_pending, stop)
         except SignInCanceled:
             return
+        except DeviceSignInUnavailable:
+            self._post({"type": "api-key-required"})
+            return
         except (BambuddyError, SignInFailed) as error:
             self._post({"type": "sign-in-failed", "error": str(error)})
             return
+        self._signed_in(session)
+
+    def _sign_in_with_api_key(self, url: str, api_key: str) -> None:
+        if not api_key:
+            self._post({"type": "sign-in-failed", "error": "Paste an API key."})
+            return
+        try:
+            session = sign_in_with_api_key(BambuddyClient(normalize_instance_url(url), api_key))
+        except (BambuddyError, SignInFailed) as error:
+            self._post({"type": "sign-in-failed", "error": str(error)})
+            return
+        self._signed_in(session)
+
+    def _signed_in(self, session: Session) -> None:
         self._sessions.save(session)
         self._post({"type": "signed-in", "session": self._session_json(session)})
 

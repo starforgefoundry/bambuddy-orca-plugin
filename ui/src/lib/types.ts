@@ -22,6 +22,7 @@ export interface ProfilePlan {
 export interface Session {
   instanceUrl: string
   username: string | null
+  hasApiKey: boolean
 }
 
 export interface ConnectBoot {
@@ -117,6 +118,7 @@ export interface SendRequest {
 
 export type OutgoingMessage =
   | { type: 'sign-in'; url: string }
+  | { type: 'sign-in-with-api-key'; url: string; apiKey: string }
   | { type: 'cancel-sign-in' }
   | { type: 'plan-profiles' }
   | { type: 'save-profiles'; bundleName: string; presets: PlannedPreset[] }
@@ -127,6 +129,7 @@ export type OutgoingMessage =
 export type IncomingMessage =
   | { type: 'sign-in-started'; userCode: string; verificationUrl: string }
   | { type: 'signed-in'; session: Session }
+  | { type: 'api-key-required' }
   | { type: 'sign-in-failed'; error: string }
   | { type: 'profiles-planned'; plan: ProfilePlan | null; error: string | null }
   | { type: 'profiles-saved'; error: string | null; restartRequired: boolean }

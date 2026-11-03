@@ -23,6 +23,8 @@ export class ConnectManager {
   planProblem = $state<string | null>(null)
   saved = $state<SaveOutcome | null>(null)
   pending = $state<{ userCode: string; verificationUrl: string } | null>(null)
+  apiKey = $state('')
+  apiKeyUrl = $state<string | null>(null)
 
   constructor(boot: ConnectBoot) {
     this.session = boot.session
@@ -38,10 +40,34 @@ export class ConnectManager {
     return !this.busy && !this.planProblem && !!this.presets?.length && !!this.bundleName.trim()
   }
 
+  // Asked for only after this instance turned out not to support browser sign-in.
+  get needsApiKey(): boolean {
+    return this.apiKeyUrl !== null && this.apiKeyUrl === this.url.trim()
+  }
+
+  get canSignIn(): boolean {
+    return !this.busy && !!this.url.trim() && (!this.needsApiKey || !!this.apiKey.trim())
+  }
+
+  get waitingForBrowser(): boolean {
+    return this.phase === CONNECT_SIGNING_IN && !this.needsApiKey
+  }
+
+  get sessionLabel(): string {
+    if (this.session?.username) return `Signed in as ${this.session.username}`
+    return this.session?.hasApiKey ? 'Signed in with an API key' : 'Authentication disabled'
+  }
+
   signIn(): void {
+    if (!this.canSignIn) return
     this.error = null
     this.phase = CONNECT_SIGNING_IN
-    send({ type: 'sign-in', url: this.url.trim() })
+    const url = this.url.trim()
+    if (this.needsApiKey) {
+      send({ type: 'sign-in-with-api-key', url, apiKey: this.apiKey.trim() })
+      return
+    }
+    send({ type: 'sign-in', url })
   }
 
   cancelSignIn(): void {
@@ -87,8 +113,14 @@ export class ConnectManager {
       case 'sign-in-started':
         this.pending = { userCode: message.userCode, verificationUrl: message.verificationUrl }
         return
+      case 'api-key-required':
+        this.phase = CONNECT_IDLE
+        this.apiKeyUrl = this.url.trim()
+        return
       case 'signed-in':
         this.pending = null
+        this.apiKey = ''
+        this.apiKeyUrl = null
         this.session = message.session
         this.planProfiles()
         return

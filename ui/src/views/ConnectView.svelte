@@ -40,9 +40,7 @@
       <div class="flex items-center justify-between gap-2 rounded-md border p-3">
         <div class="flex min-w-0 flex-col">
           <span class="truncate font-medium">{manager.session.instanceUrl}</span>
-          <span class="text-muted-foreground">
-            {manager.session.username ? `Signed in as ${manager.session.username}` : 'Authentication disabled'}
-          </span>
+          <span class="text-muted-foreground">{manager.sessionLabel}</span>
         </div>
         <div class="flex items-center gap-2">
           <Badge variant="secondary">Connected</Badge>
@@ -110,7 +108,7 @@
           <Alert><AlertDescription>Saved. The printer profiles are ready to use.</AlertDescription></Alert>
         {/if}
       </div>
-    {:else if manager.phase === CONNECT_SIGNING_IN}
+    {:else if manager.waitingForBrowser}
       <div class="flex flex-col gap-2 rounded-md border p-3">
         <span class="font-medium">Finish signing in in your browser</span>
         {#if manager.pending}
@@ -125,6 +123,7 @@
       </div>
     {:else}
       <form
+        id="sign-in-form"
         class="flex flex-col gap-2"
         onsubmit={(event) => {
           event.preventDefault()
@@ -137,8 +136,17 @@
           type="url"
           placeholder="https://bambuddy.example.com"
           required
+          disabled={manager.busy}
           bind:value={manager.url}
         />
+        {#if manager.needsApiKey}
+          <Label for="api-key" class="mt-2">API key</Label>
+          <Input id="api-key" type="password" required disabled={manager.busy} bind:value={manager.apiKey} />
+          <span class="text-xs text-muted-foreground">
+            This Bambuddy version doesn't support browser sign-in. Create a key in Bambuddy under Settings → API Keys
+            and paste it here.
+          </span>
+        {/if}
       </form>
     {/if}
   </div>
@@ -149,10 +157,12 @@
       <Button onclick={() => manager.saveProfiles()} disabled={!manager.canSave}>
         {manager.phase === CONNECT_SAVING ? 'Saving…' : 'Save profiles'}
       </Button>
-    {:else if manager.phase === CONNECT_SIGNING_IN}
+    {:else if manager.waitingForBrowser}
       <Button variant="outline" onclick={() => manager.cancelSignIn()}>Cancel</Button>
     {:else}
-      <Button onclick={() => manager.signIn()} disabled={!manager.url.trim()}>Sign in</Button>
+      <Button type="submit" form="sign-in-form" disabled={!manager.canSignIn}>
+        {manager.phase === CONNECT_SIGNING_IN ? 'Signing in…' : 'Sign in'}
+      </Button>
     {/if}
   </footer>
 </div>
