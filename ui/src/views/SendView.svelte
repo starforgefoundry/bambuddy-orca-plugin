@@ -14,7 +14,7 @@
   import { Skeleton } from '$lib/components/ui/skeleton'
   import { Switch } from '$lib/components/ui/switch'
   import * as ToggleGroup from '$lib/components/ui/toggle-group'
-  import { ALL_LOCATIONS, SendManager } from '$lib/managers/send-manager.svelte'
+  import { ALL_LOCATIONS, MAX_QUANTITY, MIN_QUANTITY, SendManager } from '$lib/managers/send-manager.svelte'
   import {
     EXACT_COLORS_HELP,
     EXACT_COLORS_LABEL,
@@ -51,15 +51,31 @@
     </div>
   </header>
 
-  <section class="flex flex-col gap-2">
-    <Label for="print-name">Name</Label>
-    <div class="flex items-center gap-2">
-      <Input id="print-name" class="flex-1" bind:value={manager.printName} disabled={manager.submitting} />
-      {#if boot.nameSuffix}
-        <span class="shrink-0 text-muted-foreground">{boot.nameSuffix}</span>
-      {/if}
-    </div>
-  </section>
+  <div class="flex gap-4">
+    <section class="flex flex-1 flex-col gap-2">
+      <Label for="print-name">Name</Label>
+      <div class="flex items-center gap-2">
+        <Input id="print-name" class="flex-1" bind:value={manager.printName} disabled={manager.submitting} />
+        {#if boot.nameSuffix}
+          <span class="shrink-0 text-muted-foreground">{boot.nameSuffix}</span>
+        {/if}
+      </div>
+    </section>
+
+    <section class="flex w-20 flex-col gap-2">
+      <Label for="quantity">Quantity</Label>
+      <Input
+        id="quantity"
+        type="number"
+        min={MIN_QUANTITY}
+        max={MAX_QUANTITY}
+        step={1}
+        bind:value={manager.quantity}
+        aria-invalid={!manager.validQuantity}
+        disabled={manager.submitting}
+      />
+    </section>
+  </div>
 
   {#if manager.uploadError}
     <Alert variant="destructive"><AlertDescription>Upload failed: {manager.uploadError}</AlertDescription></Alert>

@@ -15,10 +15,13 @@ import {
 } from '$lib/types'
 
 export const ALL_LOCATIONS = ''
+export const MIN_QUANTITY = 1
+export const MAX_QUANTITY = 999
 
 export class SendManager {
   readonly boot: SendBoot
   printName = $state('')
+  quantity = $state<number | null>(MIN_QUANTITY)
   targetKind = $state<TargetKind>(TARGET_ANY)
   printerId = $state<number | null>(null)
   location = $state(ALL_LOCATIONS)
@@ -64,8 +67,13 @@ export class SendManager {
 
   get canSubmit(): boolean {
     if (this.submitting || this.plates === null || this.selectedPlateIds.length === 0) return false
-    if (!this.printName.trim()) return false
+    if (!this.printName.trim() || !this.validQuantity) return false
     return this.targetKind === TARGET_ANY || this.selectedTrays !== null
+  }
+
+  get validQuantity(): boolean {
+    const quantity = this.quantity ?? 0
+    return Number.isInteger(quantity) && quantity >= MIN_QUANTITY && quantity <= MAX_QUANTITY
   }
 
   get submitLabel(): string {
@@ -131,6 +139,7 @@ export class SendManager {
           plateId: plate.plateId,
           amsMapping: toPrinter ? toAmsMapping(plate.filaments, this.mappingFor(plate.plateId)) : null,
         })),
+        quantity: this.quantity ?? MIN_QUANTITY,
         printName: this.printName.trim(),
         forceColorMatch: !toPrinter && this.forceColorMatch,
         groupPlates: selected.length > 1 && this.groupPlates,

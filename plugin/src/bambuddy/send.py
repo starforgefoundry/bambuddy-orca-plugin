@@ -102,6 +102,10 @@ def batch_payload(file_name: str, library_file_id: int, plate_count: int) -> dic
     return {"name": f"{base} · {plate_count} plates", "library_file_id": library_file_id}
 
 
+def request_quantity(request: dict[str, Any]) -> int:
+    return max(1, int(request.get("quantity") or 1))
+
+
 def queue_payload(
     request: dict[str, Any],
     library_file_id: int,
@@ -120,6 +124,8 @@ def queue_payload(
         "vibration_cali": options["vibrationCali"],
         "timelapse": options["timelapse"],
     }
+    if request_quantity(request) > 1:
+        payload["quantity"] = request_quantity(request)
     if batch_id is not None:
         payload["batch_id"] = batch_id
     if request["targetKind"] == TARGET_PRINTER:
@@ -147,8 +153,11 @@ def sent_summary(
     request: dict[str, Any], file_name: str, model: str, printers: list[dict[str, Any]], plate_count: int = 1
 ) -> str:
     """What the confirmation toast in OrcaSlicer says happened."""
+    quantity = request_quantity(request)
     subject = file_name if plate_count == 1 else f"{plate_count} plates of {file_name}"
-    verb = "is" if plate_count == 1 else "are"
+    if quantity > 1:
+        subject = f"{quantity} copies of {subject}" if plate_count == 1 else f"{quantity} copies each of {subject}"
+    verb = "is" if plate_count == 1 and quantity == 1 else "are"
     if request["targetKind"] == TARGET_PRINTER:
         where = next((p["name"] for p in printers if p["id"] == request["printerId"]), "the printer")
     else:

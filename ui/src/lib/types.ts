@@ -110,6 +110,7 @@ export interface SendRequest {
   location: string | null
   dispatch: Dispatch
   plates: PlateRequest[]
+  quantity: number
   printName: string
   forceColorMatch: boolean
   groupPlates: boolean

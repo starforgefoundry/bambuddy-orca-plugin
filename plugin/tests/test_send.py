@@ -113,6 +113,26 @@ def test_sent_summary_describes_target_and_dispatch():
     )
 
 
+def test_sent_summary_counts_copies():
+    request = {"targetKind": "any", "printerId": None, "location": None, "dispatch": "now", "quantity": 3}
+    assert sent_summary(request, "Benchy.gcode.3mf", "X1C", []) == (
+        "3 copies of Benchy.gcode.3mf are queued in Bambuddy and will start on the next free X1C."
+    )
+    assert sent_summary(request, "Benchy.gcode.3mf", "X1C", [], plate_count=2).startswith(
+        "3 copies each of 2 plates of Benchy.gcode.3mf are queued"
+    )
+
+
+def test_queue_payload_asks_for_copies_only_above_one():
+    request = {
+        "targetKind": "any", "printerId": None, "location": None, "dispatch": "now",
+        "amsMapping": None, "forceColorMatch": False, "options": OPTIONS,
+    }
+    assert queue_payload({**request, "quantity": 4}, 11, 2, "X1C", FILAMENTS)["quantity"] == 4
+    assert "quantity" not in queue_payload({**request, "quantity": 1}, 11, 2, "X1C", FILAMENTS)
+    assert "quantity" not in queue_payload(request, 11, 2, "X1C", FILAMENTS)
+
+
 def test_batch_payload_names_batch_after_file():
     assert batch_payload("Benchy.gcode.3mf", 11, 3) == {"name": "Benchy · 3 plates", "library_file_id": 11}
 
