@@ -88,6 +88,39 @@ def test_send_without_session_asks_to_sign_in(plugin):
     agent.disconnect_printer()
 
 
+def test_successful_send_reports_only_upload_progress(plugin, monkeypatch):
+    from bambuddy import agent as agent_module
+    from bambuddy.runtime import SESSIONS
+    from bambuddy.session import Session
+
+    class FakeClient:
+        def __init__(self, instance_url, api_key):
+            self.instance_url = instance_url
+
+        def list_printers(self):
+            return []
+
+    class FakeFlow:
+        summary = "Benchy is queued."
+
+        def __init__(self, client, job, open_window):
+            pass
+
+        def run(self, is_canceled, on_progress):
+            on_progress(100)
+            return 0
+
+    SESSIONS.save(Session("https://bambuddy.local", "bb_x", None))
+    monkeypatch.setattr(agent_module, "BambuddyClient", FakeClient)
+    monkeypatch.setattr(agent_module, "SendFlow", FakeFlow)
+    agent, _ = connected_agent(plugin)
+    stages = []
+    params = types.SimpleNamespace(project_name="Benchy", filename="missing.3mf", plate_index=1)
+    assert agent.start_local_print(params, lambda stage, code, info: stages.append(stage), lambda: False) == 0
+    assert stages == [agent_module.STAGE_UPLOAD]
+    agent.disconnect_printer()
+
+
 def test_connect_window_lists_session_state(plugin):
     orca, package = plugin
     from bambuddy.plugin import ConnectCapability

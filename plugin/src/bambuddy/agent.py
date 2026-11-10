@@ -29,7 +29,6 @@ RESULT_FAILED = -1
 CONNECT_STATUS_OK = 0
 STAGE_UPLOAD = 1
 DEFAULT_PLATE_ID = 1
-STAGE_FINISHED = 6
 QUEUE_PATH = "/queue"
 PUSH_INTERVAL_SECONDS = 5
 VERIFY_JOB_PROJECT = "verify_job"
@@ -223,8 +222,6 @@ class BambuddyAgent(PrinterAgentBase):
             require_exact_colors=settings["requireExactColors"],
             group_plates=settings["groupPlates"],
         )
-        started = time.monotonic()
-
         def report_upload(percent: int) -> None:
             if update_fn:
                 update_fn(STAGE_UPLOAD, percent, f"Uploading to Bambuddy {percent}%")
@@ -232,8 +229,7 @@ class BambuddyAgent(PrinterAgentBase):
         flow = SendFlow(client, job, open_send_window)
         result = flow.run(lambda: bool(cancel_fn and cancel_fn()), report_upload)
         if result == 0:
-            if update_fn:
-                update_fn(STAGE_FINISHED, 100, str(int(time.monotonic() - started)))
+            # Orca hides a widget from this thread for a finished stage, which deadlocks Windows while we hold the GIL.
             notify_sent(flow.summary, session.instance_url)
         return result
 
