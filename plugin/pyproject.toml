@@ -1,6 +1,6 @@
 [project]
 name = "Bambuddy"
-version = "0.3.0"
+version = "0.3.1"
 description = "Import Bambuddy printers into OrcaSlicer and send prints through the Bambuddy queue."
 requires-python = ">=3.12"
 dependencies = []
