@@ -8,7 +8,14 @@ from pathlib import Path
 from typing import Any
 
 from .client import BambuddyClient, BambuddyError, normalize_instance_url
-from .filaments import PlannedFilament, StockedFilament, SystemFilament, plan_filaments, stocked_filaments
+from .filaments import (
+    FilamentPlan,
+    PlannedFilament,
+    StockedFilament,
+    SystemFilament,
+    plan_filaments,
+    stocked_filaments,
+)
 from .models import DEFAULT_NOZZLE
 from .presets import (
     FILAMENT_DIR,
@@ -24,7 +31,7 @@ from .presets import (
 )
 from .send_flow import OpenWindow, Window
 from .session import Session, SessionStore
-from .shared_profiles import SharedProfile, plan_shared, shared_profile, with_shared_printers
+from .shared_profiles import SharedPlan, SharedProfile, plan_shared, shared_profile, with_shared_printers
 from .sign_in import DeviceSignInUnavailable, PendingSignIn, SignInCanceled, SignInFailed, sign_in, sign_in_with_api_key
 
 
@@ -56,11 +63,12 @@ class FarmInventory:
 
 
 SHARED_PROFILES_LABEL = "Bambuddy profiles"
-# Local presets need settings:read, and older instances lack the endpoint; neither should block importing printers.
 SHARED_PROFILES_UNAVAILABLE: dict[int | None, str] = {
     HTTPStatus.FORBIDDEN: "this account can't read Bambuddy's local presets",
     HTTPStatus.NOT_FOUND: "this Bambuddy version has no local presets",
 }
+# Includes a reply that isn't the local presets JSON, such as a proxy's login page.
+SHARED_PROFILES_FAILURES = (BambuddyError, ValueError, LookupError, TypeError, AttributeError)
 
 
 def read_shared_profiles(client: BambuddyClient) -> list[SharedProfile]:
@@ -82,12 +90,12 @@ def read_farm(session: Session) -> FarmInventory:
             status = {}
         models.append(PrinterModel(printer["model"], printer_nozzle(status)))
     stocked = stocked_filaments(client.list_spools())
+    # Optional: printers and stock filaments still import without them.
     try:
         shared = read_shared_profiles(client)
-    except BambuddyError as error:
-        reason = SHARED_PROFILES_UNAVAILABLE.get(error.status)
-        if reason is None:
-            raise
+    except SHARED_PROFILES_FAILURES as error:
+        status = error.status if isinstance(error, BambuddyError) else None
+        reason = SHARED_PROFILES_UNAVAILABLE.get(status) or f"couldn't read them: {error}"
         return FarmInventory(models, stocked, [], SkippedModel(SHARED_PROFILES_LABEL, reason))
     return FarmInventory(models, stocked, shared)
 
@@ -216,9 +224,8 @@ class ConnectFlow:
             FILAMENT_DIR: frozenset(f.name for f in self._orca.system_filaments),
             PROCESS_DIR: self._orca.system_processes,
         }
-        shared = plan_shared(farm.shared, printer_presets, system_presets, self._orca.orca_filament_ids)
-        stocked = [f for f in farm.stocked if not shared.covers(f)]
-        filaments = plan_filaments(stocked, printer_presets, self._orca.system_filaments)
+        shared = plan_shared(farm.shared, printer_presets, existing_names, system_presets, self._orca.orca_filament_ids)
+        filaments = self._plan_filaments(farm.stocked, printer_presets, shared)
         shared_names = {p.name for p in shared.profiles if p.folder == FILAMENT_DIR}
         system_copies = [f for f in filaments.presets if f.name not in shared_names]
         skipped = printers.skipped + shared.skipped + ([farm.shared_unavailable] if farm.shared_unavailable else [])
@@ -234,6 +241,20 @@ class ConnectFlow:
             "bundleName": self._bundle.bundle_name(),
         }
         self._post({"type": "profiles-planned", "plan": plan, "error": filaments.problem()})
+
+    def _plan_filaments(self, stocked: list[StockedFilament], printer_presets: list[str], shared: SharedPlan) -> FilamentPlan:
+        """A spool set to a Bambuddy profile is planned as the stock family behind it. It is never unmapped, since the
+        profile itself covers it."""
+        on_shared: list[StockedFilament] = []
+        planned: list[StockedFilament] = []
+        for filament in stocked:
+            family = shared.stock_family(filament)
+            if family is None:
+                planned.append(filament)
+            else:
+                on_shared.append(replace(filament, family=family, filament_id=None))
+        plan = plan_filaments(on_shared + planned, printer_presets, self._orca.system_filaments)
+        return FilamentPlan(plan.presets, [f for f in plan.unmapped if f not in on_shared])
 
     def _save_problem(self, session: Session | None, bundle_name: str, presets: list[PlannedPreset]) -> str | None:
         if session is None:

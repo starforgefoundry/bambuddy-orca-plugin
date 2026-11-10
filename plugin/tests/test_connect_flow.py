@@ -10,8 +10,10 @@ from bambuddy.filaments import SystemFilament
 from bambuddy.session import Session, SessionStore
 
 P1S = "Bambu Lab P1S 0.4 nozzle"
+X1C = "Bambu Lab X1 Carbon 0.4 nozzle"
 SYSTEM_FILAMENTS = [
     SystemFilament("Bambu PLA Basic @BBL X1C", "Bambu Lab", frozenset({P1S})),
+    SystemFilament("Bambu PLA Basic @BBL X1C 0.4 nozzle", "Bambu Lab", frozenset({X1C})),
     SystemFilament("Generic PETG @System", "Generic", frozenset()),
 ]
 STATUS = {"nozzles": [{"nozzle_diameter": "0.4"}]}
@@ -23,7 +25,11 @@ def spool(name):
     return {"brand": "Bambu", "material": "PLA", "subtype": "Basic", "slicer_filament_name": name}
 
 
+P1S_FARM = [{"id": 1, "name": "Farm 1", "model": "P1S"}, {"id": 2, "name": "Farm 2", "model": "C12"}]
+
+
 class FakeClient:
+    printers: list[dict] = P1S_FARM
     spools: list[dict] = []
     local_presets: list[dict] = []
     local_presets_error: BambuddyError | None = None
@@ -43,7 +49,7 @@ class FakeClient:
         return next(p for p in self.local_presets if p["id"] == preset_id)
 
     def list_printers(self):
-        return [{"id": 1, "name": "Farm 1", "model": "P1S"}, {"id": 2, "name": "Farm 2", "model": "C12"}]
+        return self.printers
 
     def printer_status(self, printer_id):
         return STATUS
@@ -79,8 +85,8 @@ def flow(tmp_path, monkeypatch):
     legacy = tmp_path / "user" / "default" / "machine"
     legacy.mkdir(parents=True)
     (legacy / "Bambuddy - Bambu Lab P1S 0.4 nozzle.json").write_text(json.dumps({"printer_agent": "bambuddy"}))
-    FakeClient.local_presets, FakeClient.local_presets_error = [], None
-    orca = OrcaPresets(frozenset({P1S}), SYSTEM_FILAMENTS, frozenset({STANDARD}), ORCA_IDS, tmp_path / "bundle", legacy)
+    FakeClient.printers, FakeClient.local_presets, FakeClient.local_presets_error = P1S_FARM, [], None
+    orca = OrcaPresets(frozenset({P1S, X1C}), SYSTEM_FILAMENTS, frozenset({STANDARD}), ORCA_IDS, tmp_path / "bundle", legacy)
     window = FakeWindow()
     reloads = []
     flow = ConnectFlow(sessions, orca, "studio", lambda boot, on_message, on_close: window, print, lambda: reloads.append(1))
@@ -137,17 +143,45 @@ def test_bambuddy_profiles_are_planned_and_saved(flow):
     assert json.loads((tmp_path / "bundle" / "process" / "Fast.json").read_text())["inherits"] == STANDARD
 
 
-def test_unreadable_bambuddy_profiles_are_skipped(flow):
-    flow, window, _, _ = flow
-    FakeClient.spools = []
-    FakeClient.local_presets_error = BambuddyError("Forbidden", 403)
+@pytest.mark.parametrize(
+    ("failure", "reason"),
+    [
+        (BambuddyError("Forbidden", 403), "this account can't read Bambuddy's local presets"),
+        (BambuddyError("Bad gateway", 502), "couldn't read them: Bad gateway"),
+        (ValueError("Expecting value"), "couldn't read them: Expecting value"),
+    ],
+)
+def test_unreadable_bambuddy_profiles_are_skipped_and_the_rest_still_plans(flow, failure, reason):
+    flow, window, _, tmp_path = flow
+    FakeClient.spools = [spool("Bambu PLA Basic")]
+    FakeClient.local_presets_error = failure
 
     flow._on_message({"type": "plan-profiles"})
     planned = window.wait_for("profiles-planned")
     assert planned["error"] is None
-    assert planned["plan"]["skipped"] == [
-        {"model": "Bambuddy profiles", "reason": "this account can't read Bambuddy's local presets"}
+    assert planned["plan"]["presets"] == [{"name": "Bambuddy P1S", "inherits": P1S, "shared": None}]
+    assert planned["plan"]["filaments"] == ["Bambu PLA Basic @BBL X1C"]
+    assert planned["plan"]["skipped"] == [{"model": "Bambuddy profiles", "reason": reason}]
+
+
+def test_profile_for_one_printer_model_keeps_stock_copies_for_the_others(flow):
+    flow, window, _, tmp_path = flow
+    FakeClient.printers = [{"id": 1, "model": "P1S"}, {"id": 2, "model": "X1C"}]
+    uploaded = "Bambu PLA Basic @BBL X1C 0.4 nozzle"
+    FakeClient.spools = [spool(uploaded)]
+    FakeClient.local_presets = [
+        {"id": 9, "name": uploaded, "preset_type": "filament", "setting": {"inherits": uploaded, "compatible_printers": [X1C], "nozzle_temperature": ["230"]}},
     ]
+
+    flow._on_message({"type": "plan-profiles"})
+    planned = window.wait_for("profiles-planned")
+    assert planned["error"] is None
+    assert planned["plan"]["filaments"] == ["Bambu PLA Basic @BBL X1C", uploaded]
+
+    flow._on_message({"type": "save-profiles", "bundleName": "Starforge", "presets": planned["plan"]["presets"]})
+    assert window.wait_for("profiles-saved")["error"] is None
+    written = json.loads((tmp_path / "bundle" / "filament" / f"{uploaded}.json").read_text())
+    assert written["nozzle_temperature"] == ["230"]
 
 
 def test_unmapped_filament_blocks_save(flow):

@@ -14,8 +14,8 @@ def profile(folder, name, profile_id=1, **setting):
     return SharedProfile(profile_id, folder, name, setting)
 
 
-def plan(*profiles, printers=(X1C,)):
-    return plan_shared(profiles, printers, SYSTEM, ORCA_IDS)
+def plan(*profiles, printers=(X1C,), existing_names=None):
+    return plan_shared(profiles, printers, existing_names or {}, SYSTEM, ORCA_IDS)
 
 
 def test_shared_profile_reads_bambuddy_detail():
@@ -65,17 +65,48 @@ def test_printer_profiles_match_by_parent_or_model_and_nozzle():
     assert shared.printers == {X1C: by_parent, P1S: by_model}
 
 
+def test_copied_stock_printer_profile_matches_by_model_not_its_template_parent():
+    stock_copy = profile(MACHINE_DIR, "Farm P1S", inherits="fdm_bbl_3dp_001_common", printer_model="Bambu Lab P1S", printer_variant="0.4")
+    assert plan(stock_copy, printers=(P1S,)).printers == {P1S: stock_copy}
+
+
+def test_compatible_printers_naming_bundle_printers_point_at_their_system_printer():
+    shared = plan(
+        profile(MACHINE_DIR, "Farm X1C", 1, inherits=X1C),
+        profile(PROCESS_DIR, "Fast", 2, compatible_printers=["Farm X1C"]),
+        profile(PROCESS_DIR, "Faster", 3, compatible_printers=["Saved P1S"]),
+        printers=(X1C, P1S),
+        existing_names={P1S: "Saved P1S"},
+    )
+    assert [p.settings["compatible_printers"] for p in shared.profiles] == [[X1C], [P1S]]
+
+
+def test_profile_based_on_another_bambuddy_profile_gets_its_settings_and_stock_parent():
+    base = profile(FILAMENT_DIR, "Farm ABS", 1, inherits=PLA_X1C, filament_type=["ABS"], nozzle_temperature=["260"])
+    fast = profile(FILAMENT_DIR, "Farm ABS Fast", 2, inherits="Farm ABS", filament_max_volumetric_speed=["30"])
+    planned = {p.name: p for p in plan(base, fast).profiles}
+    assert planned["Farm ABS Fast"].inherits == PLA_X1C
+    assert planned["Farm ABS Fast"].settings["nozzle_temperature"] == ["260"]
+    assert planned["Farm ABS Fast"].settings["filament_max_volumetric_speed"] == ["30"]
+
+
+def test_profile_inheriting_its_own_name_is_not_merged_with_itself():
+    stock_named = profile(FILAMENT_DIR, PLA_X1C, inherits=PLA_X1C)
+    assert plan(stock_named).profiles[0].inherits == PLA_X1C
+
+
 def test_one_printer_profile_per_printer_model():
     shared = plan(profile(MACHINE_DIR, "A", inherits=X1C), profile(MACHINE_DIR, "B", 2, inherits=X1C), profile(MACHINE_DIR, "C", 3, inherits=P1S))
     assert list(shared.printers) == [X1C]
     assert [s.model for s in shared.skipped] == ["B", "C"]
 
 
-def test_spools_set_to_a_shared_filament_are_covered():
-    shared = plan(profile(FILAMENT_DIR, "Farm PLA @BBL X1C", 7))
-    assert shared.covers(StockedFilament("Farm PLA @BBL X1C", "Farm PLA @BBL X1C"))
-    assert shared.covers(StockedFilament("Renamed", "Renamed", "7"))
-    assert not shared.covers(StockedFilament("Farm PLA", "Farm PLA"))
+def test_spools_set_to_a_shared_filament_map_to_its_stock_family():
+    shared = plan(profile(FILAMENT_DIR, "Farm PLA @BBL X1C", 7, inherits=PLA_X1C), profile(FILAMENT_DIR, "Own @BBL X1C", 8))
+    assert shared.stock_family(StockedFilament("Farm PLA @BBL X1C", "Farm PLA @BBL X1C")) == "Bambu PLA Basic"
+    assert shared.stock_family(StockedFilament("Renamed", "Renamed", "7")) == "Bambu PLA Basic"
+    assert shared.stock_family(StockedFilament("Own @BBL X1C", "Own @BBL X1C")) == "Own"
+    assert shared.stock_family(StockedFilament("Farm PLA", "Farm PLA")) is None
 
 
 def test_shared_printer_replaces_generated_preset_and_keeps_saved_names():
