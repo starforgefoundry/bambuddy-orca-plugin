@@ -3,8 +3,10 @@ import json
 from bambuddy.filaments import PlannedFilament
 from bambuddy.presets import (
     AGENT_ID,
+    PROCESS_DIR,
     BundleStore,
     PlannedPreset,
+    PlannedProfile,
     PrinterModel,
     default_preset_name,
     name_problem,
@@ -65,6 +67,7 @@ def test_bundle_writes_printers_filaments_and_metadata(tmp_path):
         "Starforge",
         [PlannedPreset("Farm P1S", "Bambu Lab P1S 0.4 nozzle")],
         [PlannedFilament("Bambu PLA Basic @BBL X1C", "GFA00"), PlannedFilament("Generic TPU @System", None)],
+        [],
         "https://b.local",
     )
 
@@ -93,17 +96,48 @@ def test_bundle_writes_printers_filaments_and_metadata(tmp_path):
 def test_bundle_name_defaults_and_survives_clear(tmp_path):
     store = BundleStore(tmp_path)
     assert store.bundle_name() == "Bambuddy"
-    store.write("Starforge", [], [], "")
+    store.write("Starforge", [], [], [], "")
     store.clear()
     assert store.bundle_name() == "Starforge"
 
 
 def test_bundle_write_replaces_previous_contents(tmp_path):
     store = BundleStore(tmp_path)
-    store.write("B", [PlannedPreset("Old", "Bambu Lab P1S 0.4 nozzle")], [PlannedFilament("Generic PLA @base", None)], "https://a")
-    store.write("B", [PlannedPreset("New", "Bambu Lab A1 0.4 nozzle")], [], "https://a")
+    store.write(
+        "B",
+        [PlannedPreset("Old", "Bambu Lab P1S 0.4 nozzle")],
+        [PlannedFilament("Generic PLA @base", None)],
+        [PlannedProfile(PROCESS_DIR, "Fast", "", {})],
+        "https://a",
+    )
+    store.write("B", [PlannedPreset("New", "Bambu Lab A1 0.4 nozzle")], [], [], "https://a")
     assert [p.name for p in (tmp_path / "machine").glob("*.json")] == ["New.json"]
     assert list((tmp_path / "filament").glob("*.json")) == []
+    assert list((tmp_path / "process").glob("*.json")) == []
+
+
+def test_shared_settings_never_override_what_the_bundle_needs(tmp_path):
+    shared = {"name": "Theirs", "printer_agent": "bbl", "print_host": "x", "nozzle_diameter": ["0.4"], "from": "system"}
+    printer = PlannedPreset("Farm X1C", "Bambu Lab X1 Carbon 0.4 nozzle", "Theirs", shared).to_json("https://b.local")
+    assert printer["nozzle_diameter"] == ["0.4"]
+    assert (printer["name"], printer["printer_settings_id"], printer["from"]) == ("Farm X1C", "Farm X1C", "User")
+    assert (printer["printer_agent"], printer["print_host"]) == (AGENT_ID, "https://b.local")
+
+
+def test_bundle_writes_profiles_to_their_folder(tmp_path):
+    BundleStore(tmp_path).write(
+        "B", [], [], [PlannedProfile(PROCESS_DIR, "Fast", "0.20mm Standard @BBL X1C", {"layer_height": "0.3"})], ""
+    )
+    assert json.loads((tmp_path / "process" / "Fast.json").read_text()) == {
+        "layer_height": "0.3",
+        "type": "process",
+        "version": "2.5.0.0",
+        "name": "Fast",
+        "from": "User",
+        "instantiation": "true",
+        "inherits": "0.20mm Standard @BBL X1C",
+        "print_settings_id": "Fast",
+    }
 
 
 def test_remove_legacy_presets_only_touches_ours(tmp_path):

@@ -59,6 +59,12 @@ class BambuddyClient:
     def list_spools(self) -> list[dict[str, Any]]:
         return self._request("GET", "/inventory/spools")
 
+    def list_local_presets(self) -> dict[str, list[dict[str, Any]]]:
+        return self._request("GET", "/local-presets/")
+
+    def get_local_preset(self, preset_id: int) -> dict[str, Any]:
+        return self._request("GET", f"/local-presets/{preset_id}")
+
     def printer_status(self, printer_id: int) -> dict[str, Any]:
         return self._request("GET", f"/printers/{printer_id}/status")
 

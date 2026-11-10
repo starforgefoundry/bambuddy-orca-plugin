@@ -9,8 +9,10 @@ import orca
 from .agent import BambuddyAgent
 from .connect_flow import ConnectFlow, OrcaPresets
 from .filaments import SystemFilament, config_list
+from .paths import bambu_filament_ids_file
 from .presets import BUNDLE_ID
 from .runtime import DATA_DIR, SESSIONS, SLICED_FILES_DIR
+from .send import bambu_filament_ids
 from .web import redirect_page, render_page
 
 CONNECT_WINDOW_SIZE = (560, 760)
@@ -44,9 +46,12 @@ def read_orca_presets() -> OrcaPresets:
         if p.is_system
     ]
     user_dir = DATA_DIR / "user" / _user_folder(bundle)
+    bambu_ids = bambu_filament_ids(bambu_filament_ids_file())
     return OrcaPresets(
         system_printers=frozenset(p.name for p in _presets(bundle.printers) if p.is_system),
         system_filaments=filaments,
+        system_processes=frozenset(p.name for p in _presets(bundle.prints) if p.is_system),
+        orca_filament_ids={bambu_id: orca_id for orca_id, bambu_id in bambu_ids.items()},
         bundle_dir=user_dir / "_local" / BUNDLE_ID,
         legacy_machine_dir=user_dir / "machine",
     )
