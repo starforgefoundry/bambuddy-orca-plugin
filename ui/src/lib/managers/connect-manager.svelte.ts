@@ -19,6 +19,7 @@ export class ConnectManager {
   presets = $state<PlannedPreset[] | null>(null)
   skipped = $state<SkippedModel[]>([])
   filaments = $state<string[]>([])
+  processes = $state<string[]>([])
   bundleName = $state('')
   planProblem = $state<string | null>(null)
   saved = $state<SaveOutcome | null>(null)
@@ -135,6 +136,7 @@ export class ConnectManager {
         this.presets = message.plan?.presets ?? null
         this.skipped = message.plan?.skipped ?? []
         this.filaments = message.plan?.filaments ?? []
+        this.processes = message.plan?.processes ?? []
         this.bundleName = message.plan?.bundleName ?? this.bundleName
         return
       case 'profiles-saved':
@@ -149,6 +151,7 @@ export class ConnectManager {
         this.presets = null
         this.skipped = []
         this.filaments = []
+        this.processes = []
         this.planProblem = null
         this.saved = null
         return

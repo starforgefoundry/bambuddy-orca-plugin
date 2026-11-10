@@ -50,7 +50,7 @@
         </div>
       </div>
       <span class="text-xs text-muted-foreground">
-        Signing out also removes the Bambuddy printer and filament profiles from OrcaSlicer.
+        Signing out also removes the Bambuddy printer, filament and process profiles from OrcaSlicer.
       </span>
 
       {#if manager.presets}
@@ -73,7 +73,10 @@
         {:else if manager.presets}
           {#each manager.presets as preset (preset.inherits)}
             <div class="flex flex-col gap-1">
-              <Label for={preset.inherits} class="text-xs text-muted-foreground">Based on {preset.inherits}</Label>
+              <Label for={preset.inherits} class="text-xs text-muted-foreground">
+                {preset.shared ? `Bambuddy profile ${preset.shared}, based on` : 'Based on'}
+                {preset.inherits}
+              </Label>
               <Input
                 id={preset.inherits}
                 value={preset.name}
@@ -89,7 +92,9 @@
           {/each}
 
           <span class="mt-2 font-medium">Filament presets</span>
-          <span class="text-xs text-muted-foreground">Built-in presets for the spools in your Bambuddy inventory.</span>
+          <span class="text-xs text-muted-foreground">
+            Built-in presets for the spools in your Bambuddy inventory, plus Bambuddy's own filament profiles.
+          </span>
           {#if manager.planProblem}
             <Alert variant="destructive"><AlertDescription>{manager.planProblem}</AlertDescription></Alert>
           {:else}
@@ -98,6 +103,16 @@
                 <Badge variant="outline">{filament}</Badge>
               {:else}
                 <span class="text-muted-foreground">No spools in inventory.</span>
+              {/each}
+            </div>
+          {/if}
+
+          {#if manager.processes.length}
+            <span class="mt-2 font-medium">Process presets</span>
+            <span class="text-xs text-muted-foreground">Bambuddy's process profiles.</span>
+            <div class="flex flex-wrap gap-1">
+              {#each manager.processes as process (process)}
+                <Badge variant="outline">{process}</Badge>
               {/each}
             </div>
           {/if}

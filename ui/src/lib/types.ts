@@ -5,6 +5,8 @@ export const VIEW_SETTINGS = 'settings'
 export interface PlannedPreset {
   name: string
   inherits: string
+  // The Bambuddy profile whose settings this printer preset carries.
+  shared: string | null
 }
 
 export interface SkippedModel {
@@ -16,6 +18,7 @@ export interface ProfilePlan {
   presets: PlannedPreset[]
   skipped: SkippedModel[]
   filaments: string[]
+  processes: string[]
   bundleName: string
 }
 

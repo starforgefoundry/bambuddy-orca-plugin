@@ -4,6 +4,7 @@ import threading
 import pytest
 
 from bambuddy import connect_flow
+from bambuddy.client import BambuddyError
 from bambuddy.connect_flow import ConnectFlow, OrcaPresets
 from bambuddy.filaments import SystemFilament
 from bambuddy.session import Session, SessionStore
@@ -14,6 +15,8 @@ SYSTEM_FILAMENTS = [
     SystemFilament("Generic PETG @System", "Generic", frozenset()),
 ]
 STATUS = {"nozzles": [{"nozzle_diameter": "0.4"}]}
+STANDARD = "0.20mm Standard @BBL P1S"
+ORCA_IDS = {"GFA00": "OFoiVqVM"}
 
 
 def spool(name):
@@ -22,9 +25,22 @@ def spool(name):
 
 class FakeClient:
     spools: list[dict] = []
+    local_presets: list[dict] = []
+    local_presets_error: BambuddyError | None = None
 
     def __init__(self, instance_url, api_key=None):
         self.instance_url = instance_url
+
+    def list_local_presets(self):
+        if self.local_presets_error:
+            raise self.local_presets_error
+        listing = {"filament": [], "printer": [], "process": []}
+        for preset in self.local_presets:
+            listing[preset["preset_type"]].append({key: value for key, value in preset.items() if key != "setting"})
+        return listing
+
+    def get_local_preset(self, preset_id):
+        return next(p for p in self.local_presets if p["id"] == preset_id)
 
     def list_printers(self):
         return [{"id": 1, "name": "Farm 1", "model": "P1S"}, {"id": 2, "name": "Farm 2", "model": "C12"}]
@@ -63,7 +79,8 @@ def flow(tmp_path, monkeypatch):
     legacy = tmp_path / "user" / "default" / "machine"
     legacy.mkdir(parents=True)
     (legacy / "Bambuddy - Bambu Lab P1S 0.4 nozzle.json").write_text(json.dumps({"printer_agent": "bambuddy"}))
-    orca = OrcaPresets(frozenset({P1S}), SYSTEM_FILAMENTS, tmp_path / "bundle", legacy)
+    FakeClient.local_presets, FakeClient.local_presets_error = [], None
+    orca = OrcaPresets(frozenset({P1S}), SYSTEM_FILAMENTS, frozenset({STANDARD}), ORCA_IDS, tmp_path / "bundle", legacy)
     window = FakeWindow()
     reloads = []
     flow = ConnectFlow(sessions, orca, "studio", lambda boot, on_message, on_close: window, print, lambda: reloads.append(1))
@@ -79,7 +96,7 @@ def test_plan_then_save_writes_bundle_and_reloads(flow):
     planned = window.wait_for("profiles-planned")
     assert planned["error"] is None
     assert planned["plan"]["bundleName"] == "Bambuddy"
-    assert planned["plan"]["presets"] == [{"name": "Bambuddy P1S", "inherits": P1S}]
+    assert planned["plan"]["presets"] == [{"name": "Bambuddy P1S", "inherits": P1S, "shared": None}]
     assert planned["plan"]["filaments"] == ["Bambu PLA Basic @BBL X1C", "Generic PETG @System"]
 
     flow._on_message({"type": "save-profiles", "bundleName": "Starforge", "presets": [{"name": "Farm P1S", "inherits": P1S}]})
@@ -92,6 +109,45 @@ def test_plan_then_save_writes_bundle_and_reloads(flow):
         "Generic PETG @System.json",
     ]
     assert list((tmp_path / "user" / "default" / "machine").iterdir()) == []
+
+
+def test_bambuddy_profiles_are_planned_and_saved(flow):
+    flow, window, reloads, tmp_path = flow
+    FakeClient.spools = [spool("Farm PLA @BBL X1C"), spool("Bambu PLA Basic")]
+    FakeClient.local_presets = [
+        {"id": 1, "name": "Farm P1S", "preset_type": "printer", "setting": {"inherits": P1S, "retraction_length": ["0.6"]}},
+        {"id": 2, "name": "Farm PLA @BBL X1C", "preset_type": "filament", "setting": {"filament_id": "GFA00"}},
+        {"id": 3, "name": "Fast", "preset_type": "process", "setting": {"inherits": STANDARD, "compatible_printers": [P1S]}},
+        {"id": 4, "name": "Fast A1", "preset_type": "process", "setting": {"compatible_printers": ["Bambu Lab A1 0.4 nozzle"]}},
+    ]
+
+    flow._on_message({"type": "plan-profiles"})
+    plan = window.wait_for("profiles-planned")["plan"]
+    assert plan["presets"] == [{"name": "Farm P1S", "inherits": P1S, "shared": "Farm P1S"}]
+    assert plan["filaments"] == ["Bambu PLA Basic @BBL X1C", "Farm PLA @BBL X1C"]
+    assert plan["processes"] == ["Fast"]
+    assert plan["skipped"] == [{"model": "Fast A1", "reason": "not compatible with the printers on Bambuddy"}]
+
+    flow._on_message({"type": "save-profiles", "bundleName": "Starforge", "presets": plan["presets"]})
+    assert window.wait_for("profiles-saved")["error"] is None
+    printer = json.loads((tmp_path / "bundle" / "machine" / "Farm P1S.json").read_text())
+    assert (printer["retraction_length"], printer["printer_agent"]) == (["0.6"], "bambuddy")
+    filament = json.loads((tmp_path / "bundle" / "filament" / "Farm PLA @BBL X1C.json").read_text())
+    assert (filament["inherits"], filament["filament_id"]) == ("", "OFoiVqVM")
+    assert json.loads((tmp_path / "bundle" / "process" / "Fast.json").read_text())["inherits"] == STANDARD
+
+
+def test_unreadable_bambuddy_profiles_are_skipped(flow):
+    flow, window, _, _ = flow
+    FakeClient.spools = []
+    FakeClient.local_presets_error = BambuddyError("Forbidden", 403)
+
+    flow._on_message({"type": "plan-profiles"})
+    planned = window.wait_for("profiles-planned")
+    assert planned["error"] is None
+    assert planned["plan"]["skipped"] == [
+        {"model": "Bambuddy profiles", "reason": "this account can't read Bambuddy's local presets"}
+    ]
 
 
 def test_unmapped_filament_blocks_save(flow):

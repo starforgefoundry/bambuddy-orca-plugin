@@ -53,4 +53,6 @@ def test_plan_reports_unsupported_vendors_and_unknown_families():
     stocked = [StockedFilament("Polymaker PLA", "Polymaker PLA"), StockedFilament("eSun PLA+", "eSun PLA+")]
     plan = plan_filaments(stocked, [P1S], SYSTEM)
     assert plan.presets == []
-    assert plan.problem() == "These spools don't match a Bambu Lab or Generic OrcaSlicer preset: Polymaker PLA, eSun PLA+"
+    assert plan.problem() == (
+        "These spools don't match a Bambuddy profile or a Bambu Lab or Generic OrcaSlicer preset: Polymaker PLA, eSun PLA+"
+    )

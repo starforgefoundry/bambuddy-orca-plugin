@@ -2,9 +2,10 @@
 
 import json
 import re
-from collections.abc import Callable, Iterable
-from dataclasses import dataclass
+from collections.abc import Callable, Iterable, Mapping
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 from .filaments import PlannedFilament
 from .models import DEFAULT_NOZZLE, DUAL_NOZZLE_ORCA_MODELS, orca_model, short_name, system_preset_name
@@ -13,8 +14,16 @@ AGENT_ID = "bambuddy"
 BUNDLE_ID = "bambuddy"
 DEFAULT_BUNDLE_NAME = "Bambuddy"
 METADATA_FILE = "bundle_metadata.json"
+# Each folder name is also the "type" OrcaSlicer expects inside the presets it holds.
 MACHINE_DIR = "machine"
 FILAMENT_DIR = "filament"
+PROCESS_DIR = "process"
+BUNDLE_DIRS = (MACHINE_DIR, FILAMENT_DIR, PROCESS_DIR)
+SETTINGS_ID_KEYS = {
+    MACHINE_DIR: "printer_settings_id",
+    FILAMENT_DIR: "filament_settings_id",
+    PROCESS_DIR: "print_settings_id",
+}
 DEFAULT_NAME_PREFIX = "Bambuddy"
 # OrcaSlicer only requires a parseable version; it re-derives it from the parent on save.
 PRESET_VERSION = "2.5.0.0"
@@ -29,24 +38,46 @@ class PrinterModel:
     nozzle: str = DEFAULT_NOZZLE
 
 
+def user_preset_fields(folder: str, name: str, inherits: str) -> dict[str, str]:
+    return {
+        "type": folder,
+        "version": PRESET_VERSION,
+        "name": name,
+        "from": "User",
+        "instantiation": "true",
+        "inherits": inherits,
+        SETTINGS_ID_KEYS[folder]: name,
+    }
+
+
 @dataclass(frozen=True)
 class PlannedPreset:
     name: str
     inherits: str
+    shared: str | None = None
+    settings: Mapping[str, Any] = field(default_factory=dict)
 
-    def to_json(self, instance_url: str) -> dict[str, str]:
+    def to_json(self, instance_url: str) -> dict[str, Any]:
         return {
-            "type": "machine",
-            "version": PRESET_VERSION,
-            "name": self.name,
-            "from": "User",
-            "instantiation": "true",
-            "inherits": self.inherits,
-            "printer_settings_id": self.name,
+            **self.settings,
+            **user_preset_fields(MACHINE_DIR, self.name, self.inherits),
             "printer_agent": AGENT_ID,
             "print_host": instance_url,
             "bbl_use_printhost": USE_PRINT_HOST_OFF,
         }
+
+
+@dataclass(frozen=True)
+class PlannedProfile:
+    """A Bambuddy profile copied into the bundle. Without inherits it stands on its own settings."""
+
+    folder: str
+    name: str
+    inherits: str
+    settings: Mapping[str, Any]
+
+    def to_json(self) -> dict[str, Any]:
+        return {**self.settings, **user_preset_fields(self.folder, self.name, self.inherits)}
 
 
 @dataclass(frozen=True)
@@ -130,20 +161,28 @@ class BundleStore:
             return DEFAULT_BUNDLE_NAME
 
     def clear(self) -> None:
-        self.write(self.bundle_name(), [], [], "")
+        self.write(self.bundle_name(), [], [], [], "")
 
     def write(
-        self, bundle_name: str, printers: list[PlannedPreset], filaments: list[PlannedFilament], instance_url: str
+        self,
+        bundle_name: str,
+        printers: list[PlannedPreset],
+        filaments: list[PlannedFilament],
+        profiles: list[PlannedProfile],
+        instance_url: str,
     ) -> None:
-        for path in self._files(MACHINE_DIR) + self._files(FILAMENT_DIR):
-            path.unlink()
+        for folder in BUNDLE_DIRS:
+            for path in self._files(folder):
+                path.unlink()
         for preset in printers:
             self._write(self._dir / MACHINE_DIR / f"{preset.name}.json", preset.to_json(instance_url))
         for filament in filaments:
             self._write(self._dir / FILAMENT_DIR / f"{filament.name}.json", filament_json(filament))
+        for profile in profiles:
+            self._write(self._dir / profile.folder / f"{profile.name}.json", profile.to_json())
         self._write(self._dir / METADATA_FILE, {"id": BUNDLE_ID, "name": bundle_name, "version": PRESET_VERSION})
 
-    def _write(self, path: Path, data: dict[str, str]) -> None:
+    def _write(self, path: Path, data: Mapping[str, Any]) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(data, indent=1), encoding="utf-8")
 
@@ -154,15 +193,7 @@ class BundleStore:
 
 def filament_json(filament: PlannedFilament) -> dict[str, str]:
     """A bundle copy of a system filament preset, so it shows in OrcaSlicer without enabling it by hand."""
-    data = {
-        "type": "filament",
-        "name": filament.name,
-        "from": "User",
-        "instantiation": "true",
-        "version": PRESET_VERSION,
-        "inherits": filament.name,
-        "filament_settings_id": filament.name,
-    }
+    data = user_preset_fields(FILAMENT_DIR, filament.name, filament.name)
     if filament.filament_id:
         data["filament_id"] = filament.filament_id
     return data

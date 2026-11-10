@@ -55,7 +55,7 @@ class FilamentPlan:
         if not self.unmapped:
             return None
         listed = ", ".join(f.description for f in self.unmapped)
-        return f"These spools don't match a Bambu Lab or Generic OrcaSlicer preset: {listed}"
+        return f"These spools don't match a Bambuddy profile or a Bambu Lab or Generic OrcaSlicer preset: {listed}"
 
 
 def stocked_filaments(spools: Iterable[dict[str, Any]]) -> list[StockedFilament]:
