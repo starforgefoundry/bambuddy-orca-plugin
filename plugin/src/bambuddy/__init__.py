@@ -1,6 +1,6 @@
 """Bambuddy plugin for OrcaSlicer."""
 
-__version__ = "0.3.0"  # x-release-please-version
+__version__ = "0.3.1"  # x-release-please-version
 
 try:
     import orca
