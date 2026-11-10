@@ -35,7 +35,7 @@ class SendJob:
     model: str
     printers: list[dict[str, Any]]
     options: dict[str, bool]
-    require_exact_colors: bool = False
+    require_exact_colors: bool = True
     group_plates: bool = False
 
 

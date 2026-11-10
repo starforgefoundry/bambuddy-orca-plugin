@@ -168,7 +168,7 @@ def test_settings_page_and_defaults(plugin):
 
     agent = BambuddyAgent()
     assert agent.has_config_ui() is True
-    assert agent.get_default_config()["requireExactColors"] is False
+    assert agent.get_default_config()["requireExactColors"] is True
     page = agent.get_config_ui()
     assert '"view": "settings"' in page
     assert not page.lstrip().lower().startswith("<!doctype")

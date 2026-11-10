@@ -4,7 +4,7 @@ import json
 from typing import Any
 
 DEFAULT_SETTINGS: dict[str, bool] = {
-    "requireExactColors": False,
+    "requireExactColors": True,
     "groupPlates": False,
     "bedLevelling": True,
     "flowCali": False,

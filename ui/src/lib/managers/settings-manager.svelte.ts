@@ -2,7 +2,7 @@ import { configContext, onConfig, restoreDefaultConfig, saveConfig, type ConfigC
 import type { Settings } from '$lib/types'
 
 export const DEFAULT_SETTINGS: Settings = {
-  requireExactColors: false,
+  requireExactColors: true,
   groupPlates: false,
   bedLevelling: true,
   flowCali: false,
