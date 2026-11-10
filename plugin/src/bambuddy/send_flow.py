@@ -1,6 +1,7 @@
 """Runs one "send to Bambuddy" job: uploads the sliced file while the send window collects the target."""
 
 import threading
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -20,6 +21,7 @@ CANCEL_POLL_SECONDS = 0.2
 class Window(Protocol):
     def post(self, data: Any) -> None: ...
     def close(self) -> None: ...
+    def is_open(self) -> bool: ...
 
 
 OpenWindow = Callable[[dict[str, Any], Callable[[Any], None], Callable[[], None]], Window]
@@ -67,12 +69,19 @@ class SendFlow:
         while not self._finished.wait(CANCEL_POLL_SECONDS):
             if is_canceled():
                 self._cancel()
-                self._window.close()
+                self._close_window()
                 return RESULT_CANCELED
             if on_progress and self._upload_percent != reported:
                 reported = self._upload_percent
                 on_progress(reported)
+        self._close_window()
         return self._result
+
+    def _close_window(self) -> None:
+        """OrcaSlicer closes its print dialog once run() returns, and can't while this window is still on top of it."""
+        self._window.close()
+        while self._window.is_open():
+            time.sleep(CANCEL_POLL_SECONDS)
 
     def _boot(self) -> dict[str, Any]:
         return {

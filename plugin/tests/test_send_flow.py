@@ -8,6 +8,7 @@ from bambuddy.print_name import PrintName
 from bambuddy.send_flow import RESULT_CANCELED, RESULT_OK, SendFlow, SendJob
 
 BATCH_ID = 41
+WINDOW_TEARDOWN_SECONDS = 0.3
 OPTIONS = {"bedLevelling": True, "flowCali": False, "vibrationCali": False, "timelapse": False}
 JOB = SendJob(Path("plate.3mf"), PrintName("Benchy"), [2], "Bambu Lab X1 Carbon", [], OPTIONS)
 REQUEST = {
@@ -71,28 +72,40 @@ class FakeClient:
 
 
 class FakeWindow:
-    def __init__(self, on_message, on_close):
+    """Like OrcaSlicer's window: on_close fires once, and the window stays open a moment after a close request."""
+
+    def __init__(self, on_message, on_close, page_closes_on_send=True):
         self.on_message = on_message
         self.on_close = on_close
+        self.page_closes_on_send = page_closes_on_send
         self.posts = []
         self.ready = threading.Event()
+        self.close_requested = False
+        self.destroyed = threading.Event()
 
     def post(self, data):
         self.posts.append(data)
         if data["type"] == "file-ready":
             self.ready.set()
-        if data["type"] == "send-result" and data["error"] is None:
+        if data["type"] == "send-result" and data["error"] is None and self.page_closes_on_send:
             self.close()
 
     def close(self):
+        if self.close_requested:
+            return
+        self.close_requested = True
         self.on_close()
+        threading.Timer(WINDOW_TEARDOWN_SECONDS, self.destroyed.set).start()
+
+    def is_open(self):
+        return not self.destroyed.is_set()
 
 
-def run_flow(client, script, is_canceled=lambda: False, on_progress=None, job=JOB):
+def run_flow(client, script, is_canceled=lambda: False, on_progress=None, job=JOB, page_closes_on_send=True):
     windows = []
 
     def open_window(boot, on_message, on_close):
-        window = FakeWindow(on_message, on_close)
+        window = FakeWindow(on_message, on_close, page_closes_on_send)
         windows.append(window)
         threading.Thread(target=script, args=(window,), daemon=True).start()
         return window
@@ -129,6 +142,19 @@ def test_send_queues_uploaded_file():
     assert client.queued[0]["target_model"] == "X1C"
     ready = [p for p in window.posts if p["type"] == "file-ready"][0]
     assert ready["plates"] == [{"plateId": 2, "name": "Plate 2", "filaments": [{"slotId": 1, "type": "PLA", "color": "#FFFFFF", "usedGrams": 1, "trayInfoIdx": None}], "preview": None}]
+
+
+def test_send_returns_only_after_window_is_gone():
+    client = FakeClient()
+
+    def script(window):
+        window.ready.wait(2)
+        window.on_message({"type": "send", "request": REQUEST})
+
+    result, window = run_flow(client, script, page_closes_on_send=False)
+    assert result == RESULT_OK
+    assert window.close_requested
+    assert not window.is_open()
 
 
 def test_queue_error_is_shown_and_window_stays_open():

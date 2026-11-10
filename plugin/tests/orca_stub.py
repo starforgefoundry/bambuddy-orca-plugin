@@ -81,7 +81,7 @@ class Ui:
 
     def create_window(self, **kwargs):
         self.windows.append(kwargs)
-        return types.SimpleNamespace(post=lambda data: None, close=lambda: None)
+        return types.SimpleNamespace(post=lambda data: None, close=lambda: None, is_open=lambda: False)
 
     def message(self, text, title="OrcaSlicer", buttons="ok", icon="info"):
         self.messages.append(text)
